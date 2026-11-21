@@ -337,6 +337,10 @@ struct HookContext {
     bool anonymous_memory_enabled = false;
     bool should_unmap = false;
     bool skip_hooking_unloader = false;
+    // Set once pthread_attr_setstacksize has actually been hooked in this process. The
+    // property_get path can fire before the loader reports libart, so the fork handlers
+    // retry until this is true.
+    bool unloader_installed = false;
     size_t zygote_unmounted_times = 0;
     std::vector<lsplt::MapInfo> cached_map_infos = {};
     std::vector<std::tuple<dev_t, ino_t, const char *, void **>> plt_backup;

@@ -457,22 +457,66 @@ void HookContext::hook_plt() {
 }
 
 void HookContext::hook_unloader() {
+    if (unloader_installed) return;
     ino_t art_inode = 0;
     dev_t art_dev = 0;
 
     cached_map_infos = safe_scan_map_infos();
-    for (auto &map : cached_map_infos) {
-        if (map.path.ends_with("/libart.so")) {
-            art_inode = map.inode;
-            art_dev = map.dev;
-            break;
+
+    // Ask the loader where libart actually is instead of matching /proc/self/maps paths.
+    // Once a mount namespace has been switched, the path a mapping reports can differ from
+    // the one the linker loaded it under (or carry a " (deleted)" suffix), which made the
+    // path-only lookup miss and left the unmap hook uninstalled.
+    uintptr_t art_base = 0;
+    dl_iterate_phdr(
+        [](dl_phdr_info *info, size_t, void *data) -> int {
+            if (info->dlpi_name != nullptr && strstr(info->dlpi_name, "libart.so") != nullptr) {
+                *static_cast<uintptr_t *>(data) = info->dlpi_addr;
+                return 1;
+            }
+            return 0;
+        },
+        &art_base);
+
+    if (art_base != 0) {
+        for (auto &map : cached_map_infos) {
+            if (art_base >= map.start && art_base < map.end) {
+                art_inode = map.inode;
+                art_dev = map.dev;
+                break;
+            }
         }
+    }
+
+    // Fallback for a loader that does not report it: substring match, which also accepts a
+    // " (deleted)" suffix.
+    if (art_inode == 0) {
+        for (auto &map : cached_map_infos) {
+            if (map.path.find("/libart.so") != std::string::npos) {
+                art_inode = map.inode;
+                art_dev = map.dev;
+                break;
+            }
+        }
+    }
+
+    LOGV("hook_unloader: art_base=%p art_dev=%llu art_inode=%llu",
+         reinterpret_cast<void *>(art_base), static_cast<unsigned long long>(art_dev),
+         static_cast<unsigned long long>(art_inode));
+
+    if (art_inode == 0) {
+        // libart is not visible yet (the property_get fast path can run during our own
+        // dlopen). Leave the flag clear so the fork handlers retry once it is loaded.
+        LOGV("hook_unloader: libart not loaded yet, will retry at fork");
+        return;
     }
 
     PLT_HOOK_REGISTER(art_dev, art_inode, pthread_attr_setstacksize);
     if (!lsplt::CommitHook(cached_map_infos)) {
         LOGE("HookContext::hook_unloader failed");
+        return;
     }
+    unloader_installed = true;
 }
 
 void HookContext::restore_plt_hook() {

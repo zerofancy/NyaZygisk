@@ -7,6 +7,12 @@ fi
 
 cd "$MODDIR"
 
+# The daemon shells out to `magisk`/`magisk --sqlite` to identify the root implementation and
+# read the DenyList. A temporary-root Magisk install has no magisk on the inherited PATH, so
+# without this every denylist/exclusion decision falls back to "unknown root" and the mount
+# trace cleanup is aborted.
+export PATH="/data/adb/magisk:/debug_ramdisk:$PATH"
+
 TMP_PATH=@WORK_DIRECTORY@
 
 # The work directory has to be traversable by uid 1000: a late-injected system_server

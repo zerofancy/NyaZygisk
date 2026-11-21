@@ -575,6 +575,7 @@ void ZygiskContext::nativeSpecializeAppProcess_pre() {
     process = env->GetStringUTFChars(args.app->nice_name, nullptr);
     LOGV("pre specialize [%s]", process);
     g_hook->anonymous_memory_enabled = is_anonymous_memory_enabled();
+    if (!g_hook->unloader_installed) g_hook->hook_unloader();
     zn::initHookEngine();
     // App specialize does not check FD
     flags |= SKIP_CLOSE_LOG_PIPE;
@@ -660,6 +661,9 @@ void ZygiskContext::nativeForkAndSpecialize_pre() {
     process = env->GetStringUTFChars(args.app->nice_name, nullptr);
     LOGV("pre forkAndSpecialize [%s]", process);
     g_hook->anonymous_memory_enabled = is_anonymous_memory_enabled();
+    // The property_get trigger fires too early on some ROMs (while libzygisk itself is
+    // still being loaded), so make sure the unmap hook exists before zygote forks anything.
+    if (!g_hook->unloader_installed) g_hook->hook_unloader();
     flags |= APP_FORK_AND_SPECIALIZE;
 
     if (g_hook->zygote_unmounted_times < 5 && g_hook->zygote_traces.size() == 0) {

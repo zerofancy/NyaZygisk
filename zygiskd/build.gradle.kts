@@ -25,9 +25,6 @@ val ndkDirProvider = androidComponents.sdkComponents.ndkDirectory
 // the triple is only needed to locate the compiled binary inside the target directory.
 val abiToTriple = linkedMapOf(
     "arm64-v8a" to "aarch64-linux-android",
-    "armeabi-v7a" to "armv7-linux-androideabi",
-    "x86_64" to "x86_64-linux-android",
-    "riscv64" to "riscv64-linux-android",
 )
 
 listOf("Debug", "Release").forEach { variantCap ->
@@ -81,19 +78,22 @@ listOf("Debug", "Release").forEach { variantCap ->
 
             // cargo-ndk does not know riscv64, so wire the NDK linker by hand. The target is
             // tier 3 in Rust (no prebuilt std) and the NDK only ships riscv64 sysroots from API 35.
-            val cmdExt = if (prebuilt.name.contains("windows")) ".cmd" else ""
-            val rvClang = File(binDir, "riscv64-linux-android35-clang$cmdExt").absolutePath
-            runCargo(
-                listOf(
-                    "cargo", "build", "--target", abiToTriple.getValue("riscv64"),
-                    "-Zbuild-std=std,panic_abort", "--target-dir", targetDir.absolutePath,
-                ) + profileArgs,
-                mapOf(
-                    "CARGO_TARGET_RISCV64_LINUX_ANDROID_LINKER" to rvClang,
-                    "CC_riscv64_linux_android" to rvClang,
-                    "AR_riscv64_linux_android" to File(binDir, "llvm-ar$exeExt").absolutePath,
-                ),
-            )
+            // Skipped when the ABI map has been trimmed (Pacific build: arm64-v8a only).
+            if ("riscv64" in abiToTriple) {
+                val cmdExt = if (prebuilt.name.contains("windows")) ".cmd" else ""
+                val rvClang = File(binDir, "riscv64-linux-android35-clang$cmdExt").absolutePath
+                runCargo(
+                    listOf(
+                        "cargo", "build", "--target", abiToTriple.getValue("riscv64"),
+                        "-Zbuild-std=std,panic_abort", "--target-dir", targetDir.absolutePath,
+                    ) + profileArgs,
+                    mapOf(
+                        "CARGO_TARGET_RISCV64_LINUX_ANDROID_LINKER" to rvClang,
+                        "CC_riscv64_linux_android" to rvClang,
+                        "AR_riscv64_linux_android" to File(binDir, "llvm-ar$exeExt").absolutePath,
+                    ),
+                )
+            }
 
             // Strip each binary, keeping a detached debug-symbol file linked back via gnu-debuglink.
             abiToTriple.forEach { (abi, triple) ->
